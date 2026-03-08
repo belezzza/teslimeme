@@ -3,20 +3,40 @@ const userInput = document.getElementById('user-input');
 const sendBtn = document.getElementById('send-btn');
 const modelSelect = document.getElementById('model-select');
 const typingIndicator = document.getElementById('typing');
+const clearBtn = document.getElementById('clear-btn');
 
-// Sohbet hafızası
-let history = [{ role: "system", content: "Sen 'Teslimenin Yapay Zekası' isimli nazik, zeki ve yardımcı bir asistansın." }];
+// 1. HAFIZA: Eski mesajları yükle
+let history = JSON.parse(localStorage.getItem('chatHistory')) || [
+    { role: "system", content: "Sen 'Teslimenin Yapay Zekası' isimli nazik ve zeki bir asistansın." }
+];
+
+// Sayfa yüklendiğinde hafızayı ekrana bas
+window.onload = () => {
+    history.forEach(msg => {
+        if(msg.role !== 'system') addMessage(msg.content, msg.role === 'user' ? 'user' : 'ai');
+    });
+};
+
+// 2. SES: Cevabı sesli oku
+function speak(text) {
+    // Tarayıcı sesleri henüz yüklenmemiş olabilir, kısa bir gecikme ekleyelim
+    setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'tr-TR';
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }, 100);
+}
 
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text) return;
 
-    // 1. Kullanıcı mesajını ekrana ve hafızaya ekle
     addMessage(text, 'user');
     userInput.value = '';
     history.push({ role: "user", content: text });
+    saveHistory();
 
-    // 2. Yükleniyor durumunu göster
     typingIndicator.style.display = 'block';
     chatBox.scrollTop = chatBox.scrollHeight;
 
@@ -34,17 +54,14 @@ async function sendMessage() {
         typingIndicator.style.display = 'none';
 
         if (data.reply) {
-            // 3. AI yanıtını ekle ve hafızaya al
             addMessage(data.reply, 'ai');
             history.push({ role: "assistant", content: data.reply });
-        } else {
-            addMessage("Üzgünüm, şu an yanıt veremiyorum. Lütfen tekrar dene.", 'ai');
+            saveHistory();
+            speak(data.reply); // Sesli okumayı başlat
         }
-
     } catch (err) {
         typingIndicator.style.display = 'none';
-        addMessage("Bağlantı hatası: Sunucuya ulaşılamadı.", 'ai');
-        console.error("Hata:", err);
+        addMessage("Bağlantı hatası oluştu.", 'ai');
     }
 }
 
@@ -56,12 +73,17 @@ function addMessage(text, sender) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-// KLAVYE: Enter tuşu dinleyicisi
-userInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        sendMessage();
+function saveHistory() {
+    localStorage.setItem('chatHistory', JSON.stringify(history));
+}
+
+// 3. TEMİZLE: Sohbeti sıfırla
+clearBtn.addEventListener('click', () => {
+    if(confirm("Tüm geçmiş silinsin mi?")) {
+        localStorage.removeItem('chatHistory');
+        location.reload();
     }
 });
 
-// TIKLAMA: Gönder butonu dinleyicisi
+userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
 sendBtn.addEventListener('click', sendMessage);
