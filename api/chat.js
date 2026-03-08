@@ -1,53 +1,53 @@
-import ModelClient, { isUnexpected } from "@azure-rest/ai-inference";
-import { AzureKeyCredential } from "@azure/core-auth";
+import { OpenRouter } from "@openrouter/sdk";
 import { createRequire } from 'module';
+
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Sadece POST kabul edilir' });
 
     try {
-        const { messages, selectedModel, fileData } = req.body;
-        let finalMessages = [...messages];
+        const { messages, fileData } = req.body;
+        let userPrompt = messages[messages.length - 1].content;
+        let contextMessages = [];
 
-        // PDF İşleme Kısmı
+        // 1. PDF İşleme
         if (fileData) {
             try {
                 const base64Data = fileData.split(',')[1];
                 const buffer = Buffer.from(base64Data, 'base64');
-                const data = await _pdf(buffer);
+                const data = await pdf(buffer);
                 
-                // Mesaj limitine takılmamak için metni sınırlıyoruz
-                const pdfText = data.text.substring(0, 3000); 
-                finalMessages.push({ 
-                    role: "system", 
-                    content: `Kullanıcı bir PDF dosyası yükledi. Bu dosyanın içeriği şöyledir: ${pdfText}. Lütfen bu içeriği temel alarak kullanıcıya yardımcı ol.` 
+                // PDF içeriğini sistem mesajı olarak ekle
+                contextMessages.push({
+                    role: "system",
+                    content: `Kullanıcı bir PDF yükledi. İçerik: ${data.text.substring(0, 5000)}`
                 });
             } catch (pdfErr) {
                 console.error("PDF okuma hatası:", pdfErr);
             }
         }
 
-        const token = process.env["GITHUB_TOKEN"];
-        // ÖNEMLİ DÜZELTME: .io yerine .ai olmalı
-        const client = ModelClient("https://models.github.ai/inference", new AzureKeyCredential(token));
-
-        const response = await client.path("/chat/completions").post({
-            body: { 
-                messages: finalMessages, 
-                model: selectedModel || "gpt-4o",
-                temperature: 0.7 
-            }
+        // 2. OpenRouter Bağlantısı
+        const openrouter = new OpenRouter({
+            apiKey: process.env.OPENROUTER_API_KEY // Vercel'e ekleyeceğiz
         });
 
-        if (isUnexpected(response)) {
-            return res.status(400).json(response.body.error);
-        }
+        // Mesajları birleştir
+        const finalMessages = [...contextMessages, ...messages];
 
-        res.status(200).json({ reply: response.body.choices[0].message.content });
+        // 3. Yanıtı Al (Streaming yerine direkt yanıt - Vercel Serverless için daha stabil)
+        const response = await openrouter.chat.send({
+            model: "nvidia/nemotron-3-nano-30b-a3b:free",
+            messages: finalMessages
+        });
+
+        const reply = response.choices[0]?.message?.content || "Yanıt alınamadı.";
+        return res.status(200).json({ reply: reply });
+
     } catch (err) {
-        // Hata durumunda JSON dönmesini garanti ediyoruz
-        res.status(500).json({ error: err.message });
+        console.error("Hata:", err.message);
+        return res.status(500).json({ error: "Sunucu hatası: " + err.message });
     }
 }
