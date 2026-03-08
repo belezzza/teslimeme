@@ -1,30 +1,35 @@
 import ModelClient, { isUnexpected } from "@azure-rest/ai-inference";
 import { AzureKeyCredential } from "@azure/core-auth";
+import pdf from 'pdf-parse';
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Sadece POST istekleri kabul edilir' });
-    }
+    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
     try {
-        const { messages, selectedModel } = req.body;
+        const { messages, selectedModel, fileData } = req.body;
+        let finalMessages = [...messages];
+
+        // Eğer bir dosya gönderilmişse, içeriğini ayıkla ve sisteme tanıt
+        if (fileData) {
+            const buffer = Buffer.from(fileData.split(',')[1], 'base64');
+            const data = await pdf(buffer);
+            finalMessages.push({ 
+                role: "system", 
+                content: `Kullanıcı bir PDF yükledi. İçeriği şudur: ${data.text}. Lütfen bu içeriğe göre yanıt ver veya özetle.` 
+            });
+        }
+
         const token = process.env["GITHUB_TOKEN"];
         const client = ModelClient("https://models.github.ai/inference", new AzureKeyCredential(token));
 
         const response = await client.path("/chat/completions").post({
-            body: { 
-                messages: messages, 
-                model: selectedModel || "gpt-4o",
-                temperature: 0.8
-            }
+            body: { messages: finalMessages, model: selectedModel || "gpt-4o" }
         });
 
-        if (isUnexpected(response)) {
-            return res.status(400).json(response.body.error);
-        }
+        if (isUnexpected(response)) return res.status(400).json(response.body.error);
 
-        return res.status(200).json({ reply: response.body.choices[0].message.content });
+        res.status(200).json({ reply: response.body.choices[0].message.content });
     } catch (err) {
-        return res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });
     }
 }

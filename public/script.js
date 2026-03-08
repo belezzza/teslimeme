@@ -1,89 +1,61 @@
 const chatBox = document.getElementById('chat-box');
 const userInput = document.getElementById('user-input');
-const sendBtn = document.getElementById('send-btn');
-const modelSelect = document.getElementById('model-select');
-const typingIndicator = document.getElementById('typing');
-const clearBtn = document.getElementById('clear-btn');
-const voiceToggle = document.getElementById('voice-toggle');
+const fileInput = document.getElementById('file-input');
+let lastAIResponse = "";
+let isVoiceEnabled = true;
 
-// 1. AYARLAR: Ses ve Hafıza Yükleme
-let isVoiceEnabled = JSON.parse(localStorage.getItem('voiceEnabled')) ?? true;
-let history = JSON.parse(localStorage.getItem('chatHistory')) || [
-    { role: "system", content: "Sen 'Teslimenin Yapay Zekası' isimli nazik ve zeki bir asistansın." }
-];
-
-// Sayfa yüklendiğinde ayarları uygula
-window.onload = () => {
-    updateVoiceUI();
-    history.forEach(msg => {
-        if(msg.role !== 'system') addMessage(msg.content, msg.role === 'user' ? 'user' : 'ai');
-    });
-};
-
-// SESLİ YANIT FONKSİYONU
-function speak(text) {
-    if (!isVoiceEnabled) return; // Eğer ses kapalıysa hiçbir şey yapma
-    
-    window.speechSynthesis.cancel(); // Önceki sesleri durdur
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'tr-TR';
-    utterance.rate = 1.0;
-    window.speechSynthesis.speak(utterance);
+// 1. PDF OLARAK İNDİRME FONKSİYONU
+async function downloadLastAsPDF() {
+    if (!lastAIResponse) return alert("Henüz indirilecek bir yanıt yok.");
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(12);
+    // Türkçe karakter desteği için basit bir temizlik (veya font eklenmeli)
+    const splitText = doc.splitTextToSize(lastAIResponse, 180);
+    doc.text(splitText, 10, 10);
+    doc.save("ozet.pdf");
 }
-
-// Ses Butonu Görünümü Güncelleme
-function updateVoiceUI() {
-    const icon = voiceToggle.querySelector('i');
-    if (isVoiceEnabled) {
-        icon.className = 'fas fa-volume-up';
-        voiceToggle.classList.add('active');
-    } else {
-        icon.className = 'fas fa-volume-mute';
-        voiceToggle.classList.remove('active');
-    }
-}
-
-// Ses Aç/Kapat Butonuna Basıldığında
-voiceToggle.addEventListener('click', () => {
-    isVoiceEnabled = !isVoiceEnabled;
-    localStorage.setItem('voiceEnabled', isVoiceEnabled);
-    updateVoiceUI();
-    
-    // Ses kapatıldığında konuşmayı hemen kes
-    if (!isVoiceEnabled) window.speechSynthesis.cancel();
-});
 
 async function sendMessage() {
     const text = userInput.value.trim();
-    if (!text) return;
+    const file = fileInput.files[0];
+    if (!text && !file) return;
 
-    addMessage(text, 'user');
+    addMessage(text || "Dosya yüklendi, özetleniyor...", 'user');
     userInput.value = '';
-    history.push({ role: "user", content: text });
-    saveHistory();
+    document.getElementById('typing').style.display = 'block';
 
-    typingIndicator.style.display = 'block';
-    chatBox.scrollTop = chatBox.scrollHeight;
+    let fileBase64 = null;
+    if (file) {
+        const reader = new FileReader();
+        fileBase64 = await new Promise(resolve => {
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+        });
+    }
 
     try {
         const response = await fetch('/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: history, selectedModel: modelSelect.value })
+            body: JSON.stringify({ 
+                messages: [{ role: "user", content: text }], 
+                selectedModel: document.getElementById('model-select').value,
+                fileData: fileBase64
+            })
         });
 
         const data = await response.json();
-        typingIndicator.style.display = 'none';
-
+        document.getElementById('typing').style.display = 'none';
+        
         if (data.reply) {
             addMessage(data.reply, 'ai');
-            history.push({ role: "assistant", content: data.reply });
-            saveHistory();
-            speak(data.reply); // Ses açıksa burada konuşacak
+            lastAIResponse = data.reply; // PDF için sakla
+            if(isVoiceEnabled) speak(data.reply);
         }
+        fileInput.value = ""; // Dosyayı temizle
     } catch (err) {
-        typingIndicator.style.display = 'none';
-        addMessage("Bağlantı hatası oluştu.", 'ai');
+        console.error(err);
     }
 }
 
@@ -95,16 +67,11 @@ function addMessage(text, sender) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function saveHistory() {
-    localStorage.setItem('chatHistory', JSON.stringify(history));
+function speak(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'tr-TR';
+    window.speechSynthesis.speak(utterance);
 }
 
-clearBtn.addEventListener('click', () => {
-    if(confirm("Tüm geçmiş silinsin mi?")) {
-        localStorage.removeItem('chatHistory');
-        location.reload();
-    }
-});
-
-userInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
-sendBtn.addEventListener('click', sendMessage);
+document.getElementById('send-btn').addEventListener('click', sendMessage);
+userInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage(); });

@@ -6,6 +6,7 @@
     "@azure-rest/ai-inference": "latest",
     "@azure/core-auth": "latest",
     "@azure/core-sse": "latest",
-    "express": "latest"
+    "express": "latest",
+    "pdf-parse": "^2.4.5"
   }
 }
