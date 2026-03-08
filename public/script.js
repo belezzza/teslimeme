@@ -1,35 +1,52 @@
 const chatBox = document.getElementById('chat-box');
 const userInput = document.getElementById('user-input');
 const fileInput = document.getElementById('file-input');
-let lastAIResponse = "";
-let isVoiceEnabled = true;
+const sendBtn = document.getElementById('send-btn');
+const voiceToggle = document.getElementById('voice-toggle');
+const typingIndicator = document.getElementById('typing');
 
-// 1. PDF OLARAK İNDİRME FONKSİYONU
+let isVoiceEnabled = true;
+let lastAIResponse = "";
+
+// PDF İNDİRME
 async function downloadLastAsPDF() {
     if (!lastAIResponse) return alert("Henüz indirilecek bir yanıt yok.");
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-    doc.setFontSize(12);
-    // Türkçe karakter desteği için basit bir temizlik (veya font eklenmeli)
     const splitText = doc.splitTextToSize(lastAIResponse, 180);
     doc.text(splitText, 10, 10);
-    doc.save("ozet.pdf");
+    doc.save("teslimen-ozet.pdf");
 }
+
+// SESLİ YANIT
+function speak(text) {
+    if (!isVoiceEnabled) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'tr-TR';
+    window.speechSynthesis.speak(utterance);
+}
+
+voiceToggle.addEventListener('click', () => {
+    isVoiceEnabled = !isVoiceEnabled;
+    voiceToggle.classList.toggle('active');
+    voiceToggle.querySelector('i').className = isVoiceEnabled ? 'fas fa-volume-up' : 'fas fa-volume-mute';
+});
 
 async function sendMessage() {
     const text = userInput.value.trim();
     const file = fileInput.files[0];
     if (!text && !file) return;
 
-    addMessage(text || "Dosya yüklendi, özetleniyor...", 'user');
+    addMessage(text || "Dosya gönderildi.", 'user');
     userInput.value = '';
-    document.getElementById('typing').style.display = 'block';
+    typingIndicator.style.display = 'block';
 
     let fileBase64 = null;
     if (file) {
         const reader = new FileReader();
-        fileBase64 = await new Promise(resolve => {
-            reader.onload = () => resolve(reader.result);
+        fileBase64 = await new Promise(r => {
+            reader.onload = () => r(reader.result);
             reader.readAsDataURL(file);
         });
     }
@@ -39,23 +56,24 @@ async function sendMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-                messages: [{ role: "user", content: text }], 
+                messages: [{ role: "user", content: text }],
                 selectedModel: document.getElementById('model-select').value,
                 fileData: fileBase64
             })
         });
 
         const data = await response.json();
-        document.getElementById('typing').style.display = 'none';
-        
+        typingIndicator.style.display = 'none';
+
         if (data.reply) {
             addMessage(data.reply, 'ai');
-            lastAIResponse = data.reply; // PDF için sakla
-            if(isVoiceEnabled) speak(data.reply);
+            lastAIResponse = data.reply;
+            speak(data.reply);
         }
-        fileInput.value = ""; // Dosyayı temizle
+        fileInput.value = "";
     } catch (err) {
-        console.error(err);
+        typingIndicator.style.display = 'none';
+        addMessage("Hata: " + err.message, 'ai');
     }
 }
 
@@ -67,11 +85,5 @@ function addMessage(text, sender) {
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
-function speak(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'tr-TR';
-    window.speechSynthesis.speak(utterance);
-}
-
-document.getElementById('send-btn').addEventListener('click', sendMessage);
+sendBtn.addEventListener('click', sendMessage);
 userInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendMessage(); });
