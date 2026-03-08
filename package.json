@@ -1,12 +1,11 @@
 {
   "name": "teslimen-ai",
   "version": "1.0.0",
+  "main": "api/chat.js",
   "type": "module",
   "dependencies": {
-    "@azure-rest/ai-inference": "latest",
-    "@azure/core-auth": "latest",
-    "@azure/core-sse": "latest",
-    "express": "latest",
-    "pdf-parse": "^2.4.5"
+    "@azure-rest/ai-inference": "^1.0.0-beta.2",
+    "@azure/core-auth": "^1.5.0",
+    "pdf-parse": "^1.1.1"
   }
 }
